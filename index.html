@@ -88,6 +88,10 @@ select,input{border:1.5px solid var(--line);border-radius:14px}
 .phone{border:0;border-radius:32px;box-shadow:0 22px 40px -22px rgba(59,91,219,.7)}
 .quote{font-size:20px}
 .bar{height:12px}.bar i{border-radius:6px}
+.avg{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin:8px 0}
+.avb{padding:6px 0;font-size:22px;line-height:1.1;background:var(--card);border:1px solid var(--line);border-radius:12px}
+.avb.on{background:var(--hl);border-color:var(--ink)}
+.live{font-size:13px;color:var(--mute);margin-top:2px}
 </style>
 </head>
 <body>
@@ -120,12 +124,12 @@ select,input{border:1.5px solid var(--line);border-radius:14px}
   <div class="card" id="gg" style="display:none"></div>
   <div class="card">
     <p style="font-weight:800;font-size:18px">Canlı sayacı</p>
-    <p class="mute">Başlatınca grubundakiler seni 🟢 çevrimiçi görür.</p>
+    <p class="mute">Başlatınca grubundakiler seni 🟢 çevrimiçi görür ve süreni canlı izler. Sayaçla biten süreler gruba yansır.</p>
     <div class="big" id="clk">00:00:00</div>
     <button id="tgo" style="width:100%">Çalışmaya başla</button>
   </div>
   <div class="card">
-    <p style="font-weight:800;font-size:18px;margin-bottom:10px">Elle süre ekle</p>
+    <p style="font-weight:800;font-size:18px">Elle süre ekle</p><p class="mute" style="margin-bottom:10px">🔒 Sadece sende görünür, gruba yansımaz.</p>
     <div class="row" style="margin-bottom:8px"><input id="hh" type="number" min="0" max="16" inputmode="numeric" placeholder="Saat"><input id="mm" type="number" min="0" max="59" inputmode="numeric" placeholder="Dakika"></div>
     <div class="row">
       <select id="sub" aria-label="Ders"><option>Matematik</option><option>Türkçe</option><option>Fizik</option><option>Kimya</option><option>Biyoloji</option><option>Tarih</option><option>Coğrafya</option><option>Edebiyat</option></select>
@@ -177,9 +181,11 @@ select,input{border:1.5px solid var(--line);border-radius:14px}
     <p class="db" id="db"></p>
     <p class="de" id="de"></p>
   </div>
-  <div class="row"><button class="sec" id="dprev" style="flex:1">‹ Önceki</button><button class="sec" id="dnext" style="flex:1">Sonraki ›</button></div>
 </section>
 
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
 const OLD=[
 {t:'Yazım kuralı',h:'“de/da” ayrı mı, bitişik mi?',b:'Bağlaç olan de/da ayrı yazılır; çıkarınca cümle bozulmaz. Bulunma eki bitişik yazılır; çıkarınca anlam bozulur.',e:'Ben de geliyorum. · Evde kimse yok.'},
@@ -274,11 +280,12 @@ function fields(){
   $('etot').textContent='Toplam net: 0';
 }
 
+const dayIdx=()=>{const t=new Date(Date.now()-8*36e5);return Math.round((Date.UTC(t.getFullYear(),t.getMonth(),t.getDate())-Date.UTC(t.getFullYear(),0,0))/864e5)};
 function render(){
   const now=new Date(),td=ymd(now);
   const left=Math.max(0,Math.ceil((new Date(S.date+'T00:00:00')-new Date(td+'T00:00:00'))/864e5));
   $('days').textContent=left;$('wd').textContent=left;$('exdate').value=S.date;$('m3').textContent=left+' gün kaldı';
-  const doy=Math.floor((now-new Date(now.getFullYear(),0,0))/864e5);
+  const doy=dayIdx();
   $('quote').textContent=$('wq').textContent=Q[doy%Q.length];$('m4').textContent='Bugün: '+D[doy%D.length].t;
   const sum=d=>S.sessions.filter(x=>x.d===d).reduce((a,x)=>a+x.s,0);
   const tot=sum(td);$('today').textContent='· '+fmt(tot);$('m1').textContent=(S.groups||[]).find(g=>g.code===S.cur)?.name||'Grup kur veya katıl';
@@ -292,12 +299,12 @@ function render(){
   $('log').innerHTML=todays.length?todays.map(x=>`<div class="item"><span>${x.sub}</span><span><b>${fmt(x.s)}</b> <button class="sec" data-del="${x.i}" style="padding:2px 8px;font-size:12px">sil</button></span></div>`).join(''):'<p class="mute" style="margin-top:10px">Henüz kayıt yok. Yukarıdan bugünkü süreni ekle.</p>';
   renderExams();
 }
-let off=0;
+let lastIdx=dayIdx();
 function showD(){
-  const n=new Date(),doy=Math.floor((n-new Date(n.getFullYear(),0,0))/864e5);
-  const x=D[((doy+off)%D.length+D.length)%D.length];
+  const doy=dayIdx();
+  const x=D[doy%D.length];
   $('dtag').textContent=x.t;$('dh').textContent=x.h;$('db').textContent=x.b;$('de').textContent=(x.t==='Yazım kuralı'?'Örnek: ':'Not: ')+x.e;
-  $('dnote').textContent=off===0?'Bugünün bilgisi':(off>0?off+' gün sonrası':-off+' gün öncesi');
+  $('dnote').textContent='Her sabah 08.00’de yenilenir';
 }
 function renderTime(now,sum){
   const N=range,days=[...Array(N)].map((_,i)=>{const d=new Date(now);d.setDate(d.getDate()-(N-1)+i);return d});
@@ -364,7 +371,7 @@ function renderExams(){
 $('go').onclick=()=>{
   const s=Math.round((parseFloat($('hh').value)||0)*3600+(parseFloat($('mm').value)||0)*60);
   if(s<=0)return;
-  S.sessions.push({d:ymd(new Date()),s,sub:$('sub').value});save();$('hh').value=$('mm').value='';render();pushMine();
+  S.sessions.push({d:ymd(new Date()),s,sub:$('sub').value,m:1});save();$('hh').value=$('mm').value='';render();pushMine();
 };
 $('log').onclick=e=>{const i=e.target.dataset.del;if(i!==undefined){S.sessions.splice(+i,1);save();render();pushMine()}};
 $('elist').onclick=e=>{const i=e.target.dataset.edel;if(i!==undefined){S.exams.splice(+i,1);save();render()}};
@@ -388,46 +395,58 @@ document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+b.dataset.go));
   window.scrollTo(0,0);
 });
-$('dprev').onclick=()=>{off--;showD()};$('dnext').onclick=()=>{off++;showD()};
+const chk=()=>{if(dayIdx()!==lastIdx){lastIdx=dayIdx();render();showD()}};
+setInterval(chk,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)chk()});
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let DB=null,UID=null,unsub=null,members=[],per='w',adding=false,gmsg='';
 const gAll=()=>S.groups||(S.groups=[]);
 const sumDays=(days,from)=>{let t=0;for(const k in days||{})if(k>=from)t+=days[k];return t};
+const AV=['🦊','🐼','🐯','🦁','🐨','🐸','🐙','🦄','🐧','🦉','🐺','🐱','🐶','🐰','🐻','🦋','🐢','🦈','🐬','🦅','🐝','🦖','🐲','🌵','🍉','🚀','⚡','🔥','🌙','⭐'];
+const av=i=>AV[(+i>=0&&+i<30)?+i:0];
+const mon=d=>{const x=new Date(d);x.setHours(0,0,0,0);x.setDate(x.getDate()-(x.getDay()+6)%7);return x};
+const avGrid=sel=>'<div class="avg">'+AV.map((a,i)=>`<button class="avb${i===sel?' on':''}" data-av="${i}" aria-label="Profil resmi ${i+1}">${a}</button>`).join('')+'</div>';
+let pickAv=false;
 function renderG(){
   const el=$('grp');
-  if(!DB){el.innerHTML='<p style="font-weight:800;font-size:18px">Gruplar</p><p class="mute" style="margin-top:6px">Gruplar bu sürümde henüz kapalı. Süre ve deneme kayıtların telefonunda saklanır.</p>';return}
+  if(!DB){el.innerHTML='<p style="font-weight:800;font-size:18px">Gruplar</p><p class="mute" style="margin-top:6px">Gruplara şu an bağlanılamadı. İnternetini kontrol edip uygulamayı yenile.</p>';$('gg').style.display='none';return}
   const cur=gAll().find(g=>g.code===S.cur);
   if(!cur||adding){
-    el.innerHTML=`<p style="font-weight:800;font-size:18px;margin-bottom:10px">Grup kur veya katıl</p><input id="gn" placeholder="Rumuzun" value="${esc(S.nick||'')}" maxlength="16" style="margin-bottom:8px"><div class="row" style="margin-bottom:8px"><input id="gname" placeholder="Yeni grup adı" maxlength="24"><button data-a="new" style="min-width:90px">Kur</button></div><div class="row"><input id="gcode" placeholder="Grup kodu" maxlength="5" style="text-transform:uppercase"><button class="sec" data-a="join" style="min-width:90px">Katıl</button></div><p class="mute" style="margin-top:8px">${gmsg}</p>${cur?'<button class="sec" data-a="cancel" style="margin-top:8px;width:100%">Vazgeç</button>':''}`;return}
-  const now=new Date(),td=ymd(now),wk=new Date(now);wk.setDate(wk.getDate()-6);
-  const from=per==='d'?td:per==='w'?ymd(wk):'0000';
-  const rows=members.map(m=>({id:m.id,n:m.nick||'Adsız',l:m.live&&Date.now()-m.live.b<150000,t:sumDays(m.days,from)})).sort((a,b)=>b.t-a.t);
+    el.innerHTML=`<p style="font-weight:800;font-size:18px;margin-bottom:4px">Grup kur veya katıl</p><p class="mute">Profil resmini seç</p>${avGrid(S.pfp||0)}<input id="gn" placeholder="Rumuzun" value="${esc(S.nick||'')}" maxlength="16" style="margin-bottom:8px"><div class="row" style="margin-bottom:8px"><input id="gname" placeholder="Yeni grup adı" maxlength="24"><button data-a="new" style="min-width:90px">Kur</button></div><div class="row"><input id="gcode" placeholder="Grup kodu" maxlength="5" style="text-transform:uppercase"><button class="sec" data-a="join" style="min-width:90px">Katıl</button></div><p class="mute" style="margin-top:8px">${gmsg}</p>${cur?'<button class="sec" data-a="cancel" style="margin-top:8px;width:100%">Vazgeç</button>':''}`;return}
+  const now=new Date(),td=ymd(now),from=per==='d'?td:per==='w'?ymd(mon(now)):'0000';
+  const rows=members.map(m=>{
+    let ls=(m.live&&Date.now()-m.live.b<150000)?m.live.s:0;
+    if(m.id===UID)ls=LIVE?LIVE.s:0;
+    return{id:m.id,n:m.nick||'Adsız',p:m.pfp||0,ls,t:sumDays(m.days,from)};
+  }).sort((a,b)=>b.t-a.t);
   const mx=Math.max(rows[0]?rows[0].t:0,1),medal=['🥇','🥈','🥉'];
-  el.innerHTML=`<div class="row" style="justify-content:space-between;align-items:center"><select id="gsel" style="width:auto;max-width:65%">${gAll().map(g=>`<option value="${g.code}"${g.code===S.cur?' selected':''}>${esc(g.name)}</option>`).join('')}</select><button class="sec" data-a="add" style="padding:8px 14px">+</button></div><p class="mute" style="margin:8px 0">Davet kodu: <b style="color:var(--ink);letter-spacing:2px">${esc(cur.code)}</b> <button class="sec" data-a="copy" style="padding:2px 8px;font-size:12px">Kopyala</button></p><div class="row" style="margin-bottom:4px"><button class="chip${per==='d'?' on':''}" data-p="d">Bugün</button><button class="chip${per==='w'?' on':''}" data-p="w">Hafta</button><button class="chip${per==='a'?' on':''}" data-p="a">Toplam</button></div>${rows.map((r,i)=>`<div style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>${medal[i]||(i+1)+'.'} ${esc(r.n)}${r.id===UID?' (sen)':''}${r.l?' 🟢':''}</b><span>${fmt(r.t)}</span></div><div class="bar"><i style="width:${r.t/mx*100}%"></i></div></div>`).join('')||'<p class="mute" style="margin-top:10px">Henüz kimse süre girmedi.</p>'}<button class="sec" data-a="leave" style="margin-top:14px;width:100%">Gruptan ayrıl</button>`;
+  el.innerHTML=`<div class="row" style="justify-content:space-between;align-items:center"><select id="gsel" style="width:auto;max-width:65%">${gAll().map(g=>`<option value="${g.code}"${g.code===S.cur?' selected':''}>${esc(g.name)}</option>`).join('')}</select><button class="sec" data-a="add" style="padding:8px 14px">+</button></div><p class="mute" style="margin:8px 0">Davet kodu: <b style="color:var(--ink);letter-spacing:2px">${esc(cur.code)}</b> <button class="sec" data-a="copy" style="padding:2px 8px;font-size:12px">Kopyala</button></p><div class="row" style="align-items:center;margin-bottom:8px"><button class="sec" data-a="pfp" aria-label="Profil resmini değiştir" style="font-size:24px;padding:4px 12px">${av(S.pfp)}</button><span><b>${esc(S.nick||'Adsız')}</b> <span class="mute">· profil resmini değiştir</span></span></div>${pickAv?avGrid(S.pfp||0):''}<div class="row" style="margin-bottom:4px"><button class="chip${per==='d'?' on':''}" data-p="d">Bugün</button><button class="chip${per==='w'?' on':''}" data-p="w">Bu hafta</button><button class="chip${per==='a'?' on':''}" data-p="a">Son 90 gün</button></div>${rows.map((r,i)=>`<div style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>${medal[i]||(i+1)+'.'} ${av(r.p)} ${esc(r.n)}${r.id===UID?' (sen)':''}</b><span>${fmt(r.t)}</span></div>${r.ls?`<div class="live">🟢 şu an çalışıyor · <span data-ls="${r.ls}">${clk(Math.max(0,Math.floor((Date.now()-r.ls)/1000)))}</span></div>`:''}<div class="bar"><i style="width:${r.t/mx*100}%"></i></div></div>`).join('')||'<p class="mute" style="margin-top:10px">Henüz kimse süre girmedi.</p>'}<button class="sec" data-a="leave" style="margin-top:14px;width:100%">Gruptan ayrıl</button>`;
   renderGG();
 }
+setInterval(()=>{document.querySelectorAll('[data-ls]').forEach(e=>{e.textContent=clk(Math.max(0,Math.floor((Date.now()-(+e.dataset.ls))/1000)))})},1000);
 async function pushMine(){
   if(!DB||!UID||!S.cur)return;
   const days={},c=ymd(new Date(Date.now()-90*864e5));
-  S.sessions.forEach(x=>{if(x.d>=c)days[x.d]=(days[x.d]||0)+x.s});
-  try{await DB.doc('scores/'+S.cur+'_'+UID).set({gid:S.cur,gname:gname(),uid:UID,nick:S.nick||'Adsız',days,live:LIVE?{s:LIVE.s,b:LIVE.b}:null})}catch(e){}
+  S.sessions.forEach(x=>{if(!x.m&&x.d>=c)days[x.d]=(days[x.d]||0)+x.s});
+  try{await DB.doc('scores/'+S.cur+'_'+UID).set({gid:S.cur,gname:gname(),uid:UID,nick:S.nick||'Adsız',pfp:S.pfp||0,days,live:LIVE?{s:LIVE.s,b:LIVE.b}:null})}catch(e){}
 }
 function pick(){
   if(unsub){unsub();unsub=null}
   members=[];renderG();render();
   if(DB&&S.cur){
     pushMine();
-    unsub=DB.collection('scores').onSnapshot(s=>{all=s.docs.map(d=>d.data());members=all.filter(m=>m.gid===S.cur).map(m=>({...m,id:m.uid}));renderG()},()=>{gmsg='Bağlantı koptu.';renderG()});
+    unsub=DB.collection('scores').where('gid','==',S.cur).onSnapshot(s=>{members=s.docs.map(d=>d.data()).map(m=>({...m,id:m.uid}));if(adding)renderGG();else renderG()},()=>{gmsg='Bağlantı koptu.';if(!adding)renderG()});
   }
 }
 $('grp').onclick=async e=>{
-  const b=e.target.closest('[data-a],[data-p]');if(!b||!DB)return;
+  const b=e.target.closest('[data-a],[data-p],[data-av]');if(!b||!DB)return;
+  if(b.dataset.av!==undefined){if($('gn'))S.nick=$('gn').value.trim()||S.nick;S.pfp=+b.dataset.av;pickAv=false;save();renderG();pushMine();return}
   if(b.dataset.p){per=b.dataset.p;renderG();return}
   const a=b.dataset.a;
   if(a==='add'){adding=true;gmsg='';renderG()}
+  else if(a==='pfp'){pickAv=!pickAv;renderG()}
   else if(a==='cancel'){adding=false;renderG()}
   else if(a==='copy'){try{await navigator.clipboard.writeText(S.cur)}catch(x){}b.textContent='Kopyalandı'}
-  else if(a==='leave'){S.groups=gAll().filter(g=>g.code!==S.cur);S.cur=S.groups[0]?S.groups[0].code:null;save();pick()}
+  else if(a==='leave'){try{await DB.doc('scores/'+S.cur+'_'+UID).delete()}catch(x){}S.groups=gAll().filter(g=>g.code!==S.cur);S.cur=S.groups[0]?S.groups[0].code:null;save();pick()}
   else if(a==='new'||a==='join'){
     const nick=$('gn').value.trim();if(!nick){gmsg='Önce rumuzunu yaz.';renderG();return}
     S.nick=nick;
@@ -454,12 +473,17 @@ const gname=()=>((S.groups||[]).find(g=>g.code===S.cur)||{}).name||'';
 const pFrom=()=>{const n=new Date(),w=new Date(n);w.setDate(w.getDate()-6);return per==='d'?ymd(n):per==='w'?ymd(w):'0000'};
 function renderGG(){
   const el=$('gg');
-  if(!DB||!S.cur){el.style.display='none';return}
+  if(!DB||!S.cur||!members.length){el.style.display='none';return}
   el.style.display='';
-  const g={},f=pFrom();
-  all.forEach(m=>{const o=g[m.gid]||(g[m.gid]={id:m.gid,n:m.gname||'Grup',c:0,t:0});o.c++;o.t+=sumDays(m.days,f)});
-  const rows=Object.values(g).map(o=>({...o,a:o.t/o.c})).sort((a,b)=>b.a-a.a).slice(0,10),mx=Math.max(rows[0]?rows[0].a:0,1),medal=['🥇','🥈','🥉'];
-  el.innerHTML='<p style="font-weight:800;font-size:18px">Grup yarışı</p><p class="mute">Kişi başı ortalama çalışma süresi ('+(per==='d'?'bugün':per==='w'?'son 7 gün':'toplam')+')</p>'+rows.map((r,i)=>`<div style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>${medal[i]||(i+1)+'.'} ${esc(r.n)}${r.id===S.cur?' (grubun)':''}</b><span>${fmt(Math.round(r.a))} · ${r.c} kişi</span></div><div class="bar"><i style="width:${r.a/mx*100}%"></i></div></div>`).join('');
+  const tm=mon(new Date()),lm=new Date(tm);lm.setDate(lm.getDate()-7);
+  const a=ymd(tm),b=ymd(lm),medal=['👑','🥈','🥉'];
+  const wk=(days,f,t)=>{let x=0;for(const k in days||{})if(k>=f&&(!t||k<t))x+=days[k];return x};
+  const L=members.map(m=>({n:m.nick||'Adsız',p:m.pfp||0,t:wk(m.days,a),l:wk(m.days,b,a)}));
+  const top=[...L].sort((x,y)=>y.t-x.t).filter(x=>x.t>0).slice(0,3);
+  const prev=[...L].sort((x,y)=>y.l-x.l)[0];
+  el.innerHTML='<p style="font-weight:800;font-size:18px">Haftalık zirve</p><p class="mute">Pazartesi–Pazar, sadece sayaçla tutulan süreler</p>'+
+    (prev&&prev.l>0?`<div class="item"><span>🏆 Geçen haftanın zirvesi</span><span><b>${av(prev.p)} ${esc(prev.n)}</b> · ${fmt(prev.l)}</span></div>`:'')+
+    (top.length?top.map((r,i)=>`<div class="item"><span>${medal[i]} ${av(r.p)} ${esc(r.n)}</span><span><b>${fmt(r.t)}</b></span></div>`).join(''):'<p class="mute" style="margin-top:10px">Bu hafta henüz sayaç çalışmadı. İlk sen başla!</p>');
 }
 $('tgo').onclick=()=>{
   if(!LIVE){
@@ -476,8 +500,15 @@ $('tgo').onclick=()=>{
     render();pushMine();
   }
 };
+const FB_CONFIG={apiKey:"",authDomain:"",projectId:"",storageBucket:"",messagingSenderId:"",appId:""};
 (async()=>{
-  try{if(window.claude){DB=await claude.use('db');const u=await claude.use('user');if(u&&u.id)UID=await u.id()}}catch(e){}
+  try{
+    if(FB_CONFIG.apiKey&&window.firebase){
+      firebase.initializeApp(FB_CONFIG);
+      const c=await firebase.auth().signInAnonymously();
+      UID=c.user.uid;DB=firebase.firestore();
+    }
+  }catch(e){}
   if(!UID)DB=null;
   pick();
 })();
